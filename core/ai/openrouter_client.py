@@ -12,16 +12,17 @@ from utils.logger import get_logger
 logger = get_logger("openrouter_client")
 
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_AUTH_URL = "https://openrouter.ai/api/v1/auth/key"
 
 # Curated list of popular & effective models on OpenRouter
 POPULAR_MODELS = [
-    ("google/gemini-2.0-flash-exp:free", "Google Gemini 2.0 Flash (Free)"),
-    ("meta-llama/llama-3.3-70b-instruct:free", "Llama 3.3 70B Instruct (Free)"),
     ("deepseek/deepseek-chat", "DeepSeek V3 (Fast & Low Cost)"),
-    ("deepseek/deepseek-r1", "DeepSeek R1 (Reasoning)"),
+    ("google/gemini-2.5-flash", "Google Gemini 2.5 Flash"),
     ("openai/gpt-4o-mini", "OpenAI GPT-4o Mini"),
+    ("deepseek/deepseek-r1", "DeepSeek R1 (Reasoning)"),
     ("anthropic/claude-3.5-sonnet", "Anthropic Claude 3.5 Sonnet"),
-    ("mistralai/mistral-large-2407", "Mistral Large 2"),
+    ("google/gemma-4-31b-it:free", "Google Gemma 4 31B (Free)"),
+    ("nvidia/nemotron-3.5-lightning:free", "NVIDIA Nemotron 3.5 (Free)"),
     ("qwen/qwen-2.5-72b-instruct", "Qwen 2.5 72B Instruct"),
 ]
 
@@ -32,7 +33,7 @@ class OpenRouterClient:
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         cfg = settings.get_config()
         self.api_key = (api_key or cfg.openrouter_api_key or "").strip()
-        self.model = (model or cfg.openrouter_model or "google/gemini-2.0-flash-exp:free").strip()
+        self.model = (model or cfg.openrouter_model or "deepseek/deepseek-chat").strip()
         self.timeout = cfg.request_timeout
 
     def is_configured(self) -> bool:
@@ -41,7 +42,8 @@ class OpenRouterClient:
 
     def test_connection(self, api_key: Optional[str] = None) -> Dict[str, Any]:
         """
-        Sends a minimal ping request to verify the API key is valid.
+        Validates the API key against OpenRouter's official auth endpoint.
+        Does not consume tokens or depend on a specific LLM model.
         """
         key = (api_key or self.api_key).strip()
         if not key:
@@ -51,28 +53,44 @@ class OpenRouterClient:
             "Authorization": f"Bearer {key}",
             "HTTP-Referer": "https://jobfinder.ai",
             "X-Title": "Job Finder AI",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": "google/gemini-2.0-flash-exp:free",
-            "messages": [
-                {"role": "user", "content": "Respond with 'OK' only."}
-            ],
-            "max_tokens": 10
+            "X-OpenRouter-Title": "Job Finder AI",
         }
 
         try:
             with httpx.Client(timeout=15.0) as client:
-                resp = client.post(OPENROUTER_API_URL, headers=headers, json=payload)
+                resp = client.get(OPENROUTER_AUTH_URL, headers=headers)
                 if resp.status_code == 200:
-                    return {"success": True, "message": "API Key is valid and connected to OpenRouter."}
+                    try:
+                        data = resp.json().get("data", {})
+                        label = data.get("label") or "Active"
+                        usage = data.get("usage", 0.0)
+                        limit = data.get("limit")
+                        limit_info = f" | Limit: ${limit:.2f}" if limit is not None else ""
+                        usage_info = f" | Used: ${usage:.2f}" if isinstance(usage, (int, float)) else ""
+                        return {
+                            "success": True,
+                            "message": f"Connected to OpenRouter ({label}{usage_info}{limit_info})"
+                        }
+                    except Exception:
+                        return {"success": True, "message": "Connected to OpenRouter successfully."}
                 elif resp.status_code == 401:
-                    return {"success": False, "error": "Invalid API Key (HTTP 401 Unauthorized)."}
+                    try:
+                        err_payload = resp.json().get("error", {})
+                        detail = err_payload.get("message", "Unauthorized")
+                    except Exception:
+                        detail = resp.text[:100]
+                    return {
+                        "success": False,
+                        "error": f"HTTP 401 Unauthorized: {detail}. Your key is rejected by OpenRouter. Please generate a new key at openrouter.ai/settings/keys."
+                    }
                 elif resp.status_code == 402:
                     return {"success": False, "error": "Insufficient OpenRouter account credits (HTTP 402)."}
                 else:
-                    err_msg = resp.text[:200]
-                    return {"success": False, "error": f"OpenRouter responded with HTTP {resp.status_code}: {err_msg}"}
+                    try:
+                        detail = resp.json().get("error", {}).get("message", resp.text[:150])
+                    except Exception:
+                        detail = resp.text[:150]
+                    return {"success": False, "error": f"OpenRouter HTTP {resp.status_code}: {detail}"}
         except httpx.ConnectTimeout:
             return {"success": False, "error": "Connection timed out reaching OpenRouter."}
         except Exception as e:
@@ -85,7 +103,8 @@ class OpenRouterClient:
         model: Optional[str] = None,
         temperature: float = 0.3,
         max_tokens: int = 2000,
-        response_format_json: bool = False
+        response_format_json: bool = False,
+        timeout: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         Sends a completion request to OpenRouter.
@@ -121,7 +140,9 @@ class OpenRouterClient:
 
         try:
             logger.info(f"Sending request to OpenRouter with model {target_model}...")
-            with httpx.Client(timeout=self.timeout) as client:
+            timeout_val = timeout if timeout is not None else 8.0
+            timeout_obj = httpx.Timeout(timeout_val, connect=3.0)
+            with httpx.Client(timeout=timeout_obj) as client:
                 resp = client.post(OPENROUTER_API_URL, headers=headers, json=payload)
 
             if resp.status_code != 200:

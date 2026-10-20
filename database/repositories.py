@@ -23,13 +23,15 @@ class SearchesRepository:
             INSERT INTO searches (
                 city, state, country, profession, custom_profession,
                 company_type, custom_company_type, result_limit,
-                enrich_enabled, auto_browser, status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                enrich_enabled, enrich_career_portals, enrich_linkedin_website,
+                auto_browser, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             session.city, session.state, session.country,
             session.profession, session.custom_profession,
             session.company_type, session.custom_company_type,
             session.result_limit, session.enrich_enabled,
+            session.enrich_career_portals, session.enrich_linkedin_website,
             session.auto_browser, session.status, session.created_at
         ))
         conn.commit()
@@ -159,6 +161,20 @@ class CompaniesRepository:
                 return self.get_by_id(comp_id)
             return None
         return self._row_to_company(dict(row))
+
+    def get_by_name(self, name: str) -> Optional[Company]:
+        if not name:
+            return None
+        from core.normalizer import JobNormalizer
+        norm = JobNormalizer.normalize_company_name(name)
+        res = self.find_by_normalized_name(norm)
+        if res:
+            return res
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM companies WHERE LOWER(TRIM(name)) = ? LIMIT 1", (name.strip().lower(),))
+        row = cursor.fetchone()
+        return self._row_to_company(dict(row)) if row else None
 
     def find_nearby_candidates(self, normalized_name: str, latitude: float, longitude: float, max_km: float = 15.0) -> List[Company]:
         """Finds candidate companies with matching normalized name or alias within max_km distance."""

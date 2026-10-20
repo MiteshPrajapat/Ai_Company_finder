@@ -21,6 +21,8 @@ RESUMES_DIR = DATA_DIR / "resumes"
 RESUMES_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR = BASE_DIR / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
+CHROME_PROFILE_DIR = DATA_DIR / "chrome_profile"
+CHROME_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_DB_PATH = str(DATA_DIR / "job_finder.db")
 
@@ -31,6 +33,7 @@ class AppConfig:
     database_path: str = DEFAULT_DB_PATH
     browser_type: str = "chrome"
     headless: bool = False
+    chrome_profile_path: str = str(CHROME_PROFILE_DIR)
     request_timeout: int = 30
     page_timeout: int = 30
     relevance_threshold: int = 50
@@ -44,7 +47,7 @@ class AppConfig:
     )
     # AI & OpenRouter Settings
     openrouter_api_key: str = ""
-    openrouter_model: str = "google/gemini-2.0-flash-exp:free"
+    openrouter_model: str = "nvidia/nemotron-3.5-lightning:free"
     auto_detect_hr_email: bool = True
     email_tone: str = "Professional & Concise"
     # Candidate Profile Info
@@ -73,6 +76,7 @@ class SettingsManager:
             database_path=os.getenv("DATABASE_PATH", DEFAULT_DB_PATH),
             browser_type=self.qsettings.value("browser_type", os.getenv("BROWSER_TYPE", "chrome"), type=str),
             headless=self.qsettings.value("headless", os.getenv("BROWSER_HEADLESS", "false").lower() == "true", type=bool),
+            chrome_profile_path=self.qsettings.value("chrome_profile_path", os.getenv("CHROME_PROFILE_PATH", str(CHROME_PROFILE_DIR)), type=str),
             request_timeout=self.qsettings.value("request_timeout", int(os.getenv("REQUEST_TIMEOUT", "30")), type=int),
             page_timeout=self.qsettings.value("page_timeout", int(os.getenv("PAGE_TIMEOUT", "30")), type=int),
             relevance_threshold=self.qsettings.value("relevance_threshold", int(os.getenv("RELEVANCE_THRESHOLD", "50")), type=int),
@@ -81,7 +85,11 @@ class SettingsManager:
             search_engine_fallback=self.qsettings.value("search_engine_fallback", os.getenv("SEARCH_ENGINE_FALLBACK", "auto"), type=str),
             # AI / OpenRouter
             openrouter_api_key=self.qsettings.value("openrouter_api_key", os.getenv("OPENROUTER_API_KEY", ""), type=str),
-            openrouter_model=self.qsettings.value("openrouter_model", os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free"), type=str),
+            openrouter_model=(
+                "nvidia/nemotron-3.5-lightning:free"
+                if self.qsettings.value("openrouter_model", "", type=str) == "google/gemini-2.0-flash-exp:free"
+                else self.qsettings.value("openrouter_model", os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning:free"), type=str)
+            ),
             auto_detect_hr_email=self.qsettings.value("auto_detect_hr_email", True, type=bool),
             email_tone=self.qsettings.value("email_tone", "Professional & Concise", type=str),
             # Candidate profile

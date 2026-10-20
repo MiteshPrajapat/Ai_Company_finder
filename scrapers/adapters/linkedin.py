@@ -70,6 +70,14 @@ class LinkedInAdapter(BaseJobSourceAdapter):
                         if "?" in job_url:
                             job_url = job_url.split("?")[0]
 
+                        # Extract company profile URL from card
+                        comp_link_elem = comp_elem.find("a") if hasattr(comp_elem, "find") else None
+                        if not comp_link_elem:
+                            comp_link_elem = card.find("a", href=lambda h: h and "/company/" in h)
+                        company_li_url = comp_link_elem["href"] if comp_link_elem and "href" in comp_link_elem.attrs else ""
+                        if "?" in company_li_url:
+                            company_li_url = company_li_url.split("?")[0]
+
                         skills = self.normalizer.extract_skills(f"{job_title} {job_loc}")
 
                         norm = NormalizedJob(
@@ -81,7 +89,8 @@ class LinkedInAdapter(BaseJobSourceAdapter):
                             remote_type=self.normalizer.normalize_remote_type(job_title, job_loc),
                             employment_type="Full-time",
                             skills=skills,
-                            posted_date=posted_date
+                            posted_date=posted_date,
+                            raw_data={"company_linkedin_url": company_li_url}
                         )
                         results.append(norm)
 

@@ -98,6 +98,18 @@ class CompanyDetailsDialog(QDialog):
 
         # Bottom Actions
         bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(10)
+
+        self.btn_enrich_li = QPushButton("🌐 Enrich LinkedIn & Contacts")
+        self.btn_enrich_li.setObjectName("btnPrimary")
+        self.btn_enrich_li.clicked.connect(lambda: self._run_enrichment("linkedin_web"))
+        bottom_row.addWidget(self.btn_enrich_li)
+
+        self.btn_enrich_car = QPushButton("💼 Discover Career Portal & Jobs")
+        self.btn_enrich_car.setObjectName("btnSuccess")
+        self.btn_enrich_car.clicked.connect(lambda: self._run_enrichment("career_portal"))
+        bottom_row.addWidget(self.btn_enrich_car)
+
         bottom_row.addStretch()
 
         close_btn = QPushButton("Close")
@@ -106,6 +118,45 @@ class CompanyDetailsDialog(QDialog):
         close_btn.clicked.connect(self.accept)
         bottom_row.addWidget(close_btn)
         main_layout.addLayout(bottom_row)
+
+    def _run_enrichment(self, mode: str):
+        from ui.enrichment_widget import GranularEnrichmentWorker
+        self.btn_enrich_li.setEnabled(False)
+        self.btn_enrich_car.setEnabled(False)
+        self.btn_enrich_li.setText("Enriching...")
+
+        worker = GranularEnrichmentWorker(
+            company_name=self.company.name,
+            linkedin_url=self.company.linkedin_url,
+            website_url=self.company.website_url,
+            location=self.company.city,
+            mode=mode,
+            parent=self
+        )
+
+        def on_done(res):
+            self.btn_enrich_li.setEnabled(True)
+            self.btn_enrich_car.setEnabled(True)
+            self.btn_enrich_li.setText("🌐 Enrich LinkedIn & Contacts")
+            self.company = res["company"]
+            self.contacts = res["contacts"]
+            self.jobs = res["jobs"]
+            QMessageBox.information(
+                self, "Enrichment Complete",
+                f"Enrichment completed for {self.company.name}!\n"
+                f"Discovered {len(self.contacts)} contact(s) and {len(self.jobs)} career job(s)."
+            )
+
+        def on_err(err):
+            self.btn_enrich_li.setEnabled(True)
+            self.btn_enrich_car.setEnabled(True)
+            self.btn_enrich_li.setText("🌐 Enrich LinkedIn & Contacts")
+            QMessageBox.warning(self, "Enrichment Failed", f"Enrichment error: {err}")
+
+        worker.finished_success.connect(on_done)
+        worker.finished_error.connect(on_err)
+        worker.start()
+        self._active_enrich_worker = worker
 
     def _create_overview_tab(self) -> QWidget:
         widget = QWidget()
@@ -221,12 +272,15 @@ class CompanyDetailsDialog(QDialog):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
 
-        table.setColumnWidth(1, 180)
+        table.setColumnWidth(1, 160)
         table.setColumnWidth(2, 140)
-        table.setColumnWidth(3, 90)
+        table.setColumnWidth(3, 100)
+        table.setColumnWidth(4, 85)
+        table.setColumnWidth(5, 185)
+        table.verticalHeader().setDefaultSectionSize(36)
 
         for row, job in enumerate(self.jobs):
             # Job Title
@@ -259,19 +313,20 @@ class CompanyDetailsDialog(QDialog):
 
             btn_box = QWidget()
             btn_layout = QHBoxLayout(btn_box)
-            btn_layout.setContentsMargins(2, 2, 2, 2)
-            btn_layout.setSpacing(4)
+            btn_layout.setContentsMargins(4, 2, 4, 2)
+            btn_layout.setSpacing(6)
 
             btn_contact = QPushButton("✉️ Contact HR")
             btn_contact.setObjectName("btnPrimary")
-            btn_contact.setStyleSheet("background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284C7, stop:1 #06B6D4); font-size: 10px; font-weight: 700; padding: 2px 6px;")
-            btn_contact.setFixedHeight(24)
+            btn_contact.setStyleSheet("background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284C7, stop:1 #06B6D4); font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px;")
+            btn_contact.setFixedHeight(26)
             btn_contact.clicked.connect(lambda checked=False, target_job=job: self._open_contact_hr_for_job(target_job))
             btn_layout.addWidget(btn_contact)
 
-            btn_view = QPushButton("View")
+            btn_view = QPushButton("👁️ View")
             btn_view.setObjectName("btnAction")
-            btn_view.setFixedHeight(24)
+            btn_view.setStyleSheet("font-size: 11px; padding: 3px 8px; border-radius: 4px;")
+            btn_view.setFixedHeight(26)
             btn_view.clicked.connect(lambda checked=False, target_job=job: self._open_job_details(target_job))
             btn_layout.addWidget(btn_view)
 
@@ -303,11 +358,14 @@ class CompanyDetailsDialog(QDialog):
 
         header = table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
 
         table.setColumnWidth(0, 240)
+        table.setColumnWidth(1, 110)
+        table.setColumnWidth(3, 145)
+        table.verticalHeader().setDefaultSectionSize(36)
 
         for row, contact in enumerate(self.contacts):
             table.setItem(row, 0, QTableWidgetItem(contact.email))
@@ -321,8 +379,8 @@ class CompanyDetailsDialog(QDialog):
 
             send_btn = QPushButton("✉️ Send Resume")
             send_btn.setObjectName("btnPrimary")
-            send_btn.setStyleSheet("background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284C7, stop:1 #06B6D4); font-size: 10px; font-weight: 700; padding: 2px 6px;")
-            send_btn.setFixedHeight(24)
+            send_btn.setStyleSheet("background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284C7, stop:1 #06B6D4); font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px;")
+            send_btn.setFixedHeight(26)
             send_btn.clicked.connect(lambda checked=False, em=contact.email: self._open_contact_hr_for_email(em))
             table.setCellWidget(row, 3, send_btn)
 

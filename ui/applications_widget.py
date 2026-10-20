@@ -124,16 +124,20 @@ class ApplicationsWidget(QWidget):
         header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        header_view.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header_view.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header_view.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        header_view.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
         header_view.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
         header_view.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
-        header_view.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        header_view.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)
 
         self.table.setColumnWidth(1, 160)
         self.table.setColumnWidth(2, 180)
+        self.table.setColumnWidth(3, 95)
+        self.table.setColumnWidth(4, 130)
         self.table.setColumnWidth(5, 130)
-        self.table.setColumnWidth(6, 140)
+        self.table.setColumnWidth(6, 130)
+        self.table.setColumnWidth(7, 235)
+        self.table.verticalHeader().setDefaultSectionSize(36)
 
         main_layout.addWidget(self.table, 1)
 
@@ -200,27 +204,30 @@ class ApplicationsWidget(QWidget):
             # 7. Action Buttons Container
             btn_container = QWidget()
             btn_layout = QHBoxLayout(btn_container)
-            btn_layout.setContentsMargins(2, 2, 2, 2)
-            btn_layout.setSpacing(4)
+            btn_layout.setContentsMargins(4, 2, 4, 2)
+            btn_layout.setSpacing(6)
 
             # Re-open in Chrome
             open_btn = QPushButton("🚀 Send")
             open_btn.setObjectName("btnPrimary")
-            open_btn.setFixedHeight(24)
+            open_btn.setFixedHeight(26)
+            open_btn.setStyleSheet("font-size: 11px; padding: 3px 8px;")
             open_btn.clicked.connect(lambda checked=False, a=app: self._open_application_in_chrome(a))
             btn_layout.addWidget(open_btn)
 
             # Status Menu
             status_btn = QPushButton("⚙️ Status")
             status_btn.setObjectName("btnAction")
-            status_btn.setFixedHeight(24)
+            status_btn.setFixedHeight(26)
+            status_btn.setStyleSheet("font-size: 11px; padding: 3px 8px;")
             status_btn.clicked.connect(lambda checked=False, a=app, b=status_btn: self._show_status_menu(a, b))
             btn_layout.addWidget(status_btn)
 
             # Activity Log
             log_btn = QPushButton("📜 Log")
             log_btn.setObjectName("btnAction")
-            log_btn.setFixedHeight(24)
+            log_btn.setFixedHeight(26)
+            log_btn.setStyleSheet("font-size: 11px; padding: 3px 8px;")
             log_btn.clicked.connect(lambda checked=False, a=app: self._show_activity_log(a))
             btn_layout.addWidget(log_btn)
 

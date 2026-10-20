@@ -1,12 +1,12 @@
 """
-Real-time inline progress bar and status indicator for search workflows.
+Real-time compact inline progress bar and status indicator for search workflows.
 """
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QProgressBar, QFrame, QSizePolicy
+    QProgressBar, QSizePolicy
 )
-from PyQt6.QtCore import Qt, pyqtSlot
+from PyQt6.QtCore import Qt
 from database.models import Company
 
 
@@ -24,10 +24,10 @@ class ProgressWidget(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 2, 14, 4)
+        layout.setContentsMargins(14, 4, 14, 4)
         layout.setSpacing(4)
 
-        # Single compact row: Progress bar + Live status info
+        # Single compact row: Progress bar + Live status info + Stats
         row = QHBoxLayout()
         row.setSpacing(10)
 
@@ -40,11 +40,12 @@ class ProgressWidget(QWidget):
         self.progress_bar.setFixedHeight(16)
         row.addWidget(self.progress_bar, 2)
 
-        # Live metric badges
+        # Live status info
         self.status_detail_label = QLabel("Ready")
         self.status_detail_label.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 600;")
-        row.addWidget(self.status_detail_label, 1)
+        row.addWidget(self.status_detail_label, 2)
 
+        # Stats counters
         self.stats_badge = QLabel("Companies: 0 | Jobs: 0 | Emails: 0")
         self.stats_badge.setStyleSheet("color: #94A3B8; font-size: 11px; font-weight: 500;")
         row.addWidget(self.stats_badge)
@@ -82,4 +83,9 @@ class ProgressWidget(QWidget):
         self.status_detail_label.setText(f"Enriched: {comp.name}")
 
     def on_step_updated(self, comp: Company, step: str, details: str):
-        self.status_detail_label.setText(f"{comp.name} → {step}")
+        disp_details = f": {details}" if details else ""
+        self.status_detail_label.setText(f"{comp.name} → {step}{disp_details}")
+
+    def append_log(self, message: str):
+        """Maintains API compatibility without rendering console box."""
+        pass

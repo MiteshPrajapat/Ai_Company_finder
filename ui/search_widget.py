@@ -36,6 +36,7 @@ class SearchWidget(QWidget):
     search_requested = pyqtSignal(SearchSession)
     stop_requested = pyqtSignal()
     resume_requested = pyqtSignal(SearchSession)
+    enrich_requested = pyqtSignal(SearchSession)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -139,21 +140,30 @@ class SearchWidget(QWidget):
         grid.addLayout(limit_layout, 2, 1)
 
         opts_layout = QHBoxLayout()
-        opts_layout.setSpacing(16)
-        self.enrich_check = QCheckBox("Enrich Results (Website, Careers, Contacts)")
-        self.enrich_check.setChecked(True)
-        self.auto_browser_check = QCheckBox("Auto Browser")
+        opts_layout.setSpacing(14)
+        self.enrich_linkedin_check = QCheckBox("🌐 LinkedIn & Web Enrich")
+        self.enrich_linkedin_check.setToolTip("Extracts LinkedIn About (phone, size, industry) and crawls website for HR/business emails & social profiles.")
+        self.enrich_linkedin_check.setChecked(True)
+
+        self.enrich_career_check = QCheckBox("💼 Career Portal Enrich")
+        self.enrich_career_check.setToolTip("Discovers direct career URLs & ATS endpoints, and extracts matching job openings.")
+        self.enrich_career_check.setChecked(True)
+
+        self.auto_browser_check = QCheckBox("🖥️ Live Browser")
+        self.auto_browser_check.setToolTip("Displays Chrome visibly on screen during live searches and enrichment.")
         self.auto_browser_check.setChecked(True)
-        opts_layout.addWidget(self.enrich_check)
+
+        opts_layout.addWidget(self.enrich_linkedin_check)
+        opts_layout.addWidget(self.enrich_career_check)
         opts_layout.addWidget(self.auto_browser_check)
         opts_layout.addStretch()
         grid.addLayout(opts_layout, 2, 2, 1, 4)
 
         card_layout.addLayout(grid)
 
-        # Buttons Row (Compact 36-38px)
+        # Buttons Row (Compact 34-36px)
         btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(10)
+        btn_layout.setSpacing(8)
 
         self.search_btn = QPushButton("🔎  START SEARCH")
         self.search_btn.setObjectName("btnPrimary")
@@ -161,18 +171,43 @@ class SearchWidget(QWidget):
         self.search_btn.clicked.connect(self._on_search_clicked)
         btn_layout.addWidget(self.search_btn, 3)
 
+        self.enrich_btn = QPushButton("🌐  ENRICH LINKEDIN & UNSTOP")
+        self.enrich_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0A66C2, stop:0.5 #4F46E5, stop:1 #7C3AED);
+                color: #FFFFFF;
+                font-weight: 700;
+                font-size: 11px;
+                border-radius: 6px;
+                border: 1px solid #818CF8;
+                padding: 0 12px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284C7, stop:0.5 #6366F1, stop:1 #8B5CF6);
+            }
+            QPushButton:disabled {
+                background: #1E293B;
+                color: #64748B;
+                border: 1px solid #334155;
+            }
+        """)
+        self.enrich_btn.setToolTip("Enrich with LinkedIn About details, Website contacts, and Unstop opportunities")
+        self.enrich_btn.setMinimumHeight(34)
+        self.enrich_btn.clicked.connect(self._on_enrich_clicked)
+        btn_layout.addWidget(self.enrich_btn, 3)
+
+        self.resume_btn = QPushButton("▶  RESUME")
+        self.resume_btn.setObjectName("btnSuccess")
+        self.resume_btn.setMinimumHeight(34)
+        self.resume_btn.clicked.connect(self._on_resume_clicked)
+        btn_layout.addWidget(self.resume_btn, 1)
+
         self.stop_btn = QPushButton("⏹  STOP")
         self.stop_btn.setObjectName("btnDanger")
         self.stop_btn.setMinimumHeight(34)
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_requested.emit)
         btn_layout.addWidget(self.stop_btn, 1)
-
-        self.resume_btn = QPushButton("▶  RESUME ENRICHMENT")
-        self.resume_btn.setObjectName("btnSuccess")
-        self.resume_btn.setMinimumHeight(34)
-        self.resume_btn.clicked.connect(self._on_resume_clicked)
-        btn_layout.addWidget(self.resume_btn, 2)
 
         card_layout.addLayout(btn_layout)
         main_layout.addWidget(card_frame)
@@ -231,6 +266,9 @@ class SearchWidget(QWidget):
             QMessageBox.warning(self, "Validation Error", "Please enter your desired custom company type.")
             return None
 
+        enrich_career = self.enrich_career_check.isChecked()
+        enrich_linkedin = self.enrich_linkedin_check.isChecked()
+
         return SearchSession(
             city=city,
             state=state,
@@ -240,7 +278,9 @@ class SearchWidget(QWidget):
             company_type=comp_type,
             custom_company_type=custom_type,
             result_limit=self.get_result_limit(),
-            enrich_enabled=self.enrich_check.isChecked(),
+            enrich_enabled=(enrich_career or enrich_linkedin),
+            enrich_career_portals=enrich_career,
+            enrich_linkedin_website=enrich_linkedin,
             auto_browser=self.auto_browser_check.isChecked()
         )
 
@@ -250,6 +290,12 @@ class SearchWidget(QWidget):
             self.set_running_state(True)
             self.search_requested.emit(session)
 
+    def _on_enrich_clicked(self):
+        session = self.build_session()
+        if session:
+            self.set_running_state(True)
+            self.enrich_requested.emit(session)
+
     def _on_resume_clicked(self):
         session = self.build_session()
         if session:
@@ -258,5 +304,6 @@ class SearchWidget(QWidget):
 
     def set_running_state(self, is_running: bool):
         self.search_btn.setEnabled(not is_running)
+        self.enrich_btn.setEnabled(not is_running)
         self.resume_btn.setEnabled(not is_running)
         self.stop_btn.setEnabled(is_running)

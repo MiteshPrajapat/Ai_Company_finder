@@ -20,6 +20,8 @@ class SearchSession:
     custom_company_type: Optional[str] = None
     result_limit: int = 10
     enrich_enabled: bool = True
+    enrich_career_portals: bool = True
+    enrich_linkedin_website: bool = True
     auto_browser: bool = True
     status: str = "PENDING"  # PENDING, RUNNING, COMPLETED, STOPPED, FAILED
     created_at: str = field(default_factory=lambda: datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))

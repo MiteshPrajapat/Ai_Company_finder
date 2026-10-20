@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QDialog, QTextEdit
 )
 from PyQt6.QtCore import Qt
-from config.settings import settings, RESUMES_DIR
+from config.settings import settings, RESUMES_DIR, CHROME_PROFILE_DIR
 from database.models import Resume
 from database.repositories import ResumesRepository
 from core.ai.openrouter_client import OpenRouterClient, POPULAR_MODELS
@@ -245,13 +245,16 @@ class SettingsWidget(QWidget):
 
         r_header = self.resumes_table.horizontalHeader()
         r_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        r_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        r_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         r_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         r_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
-        r_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        r_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
 
-        self.resumes_table.setColumnWidth(2, 140)
-        self.resumes_table.setColumnWidth(3, 200)
+        self.resumes_table.setColumnWidth(1, 110)
+        self.resumes_table.setColumnWidth(2, 130)
+        self.resumes_table.setColumnWidth(3, 180)
+        self.resumes_table.setColumnWidth(4, 210)
+        self.resumes_table.verticalHeader().setDefaultSectionSize(36)
 
         layout.addWidget(self.resumes_table, 1)
         self._load_resumes_table()
@@ -270,10 +273,10 @@ class SettingsWidget(QWidget):
             # 1. Status (Default Badge)
             if r.is_default:
                 status_lbl = QLabel("⭐ Default")
-                status_lbl.setStyleSheet("background-color: #064E3B; color: #34D399; font-weight: 700; padding: 2px 6px; border-radius: 4px; border: 1px solid #059669;")
+                status_lbl.setStyleSheet("background-color: #064E3B; color: #34D399; font-weight: 700; font-size: 11px; padding: 3px 8px; border-radius: 4px; border: 1px solid #059669;")
             else:
                 status_lbl = QLabel("Alternative")
-                status_lbl.setStyleSheet("color: #94A3B8; font-size: 11px;")
+                status_lbl.setStyleSheet("color: #94A3B8; font-size: 11px; padding: 3px 6px;")
             status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.resumes_table.setCellWidget(row, 1, status_lbl)
 
@@ -290,28 +293,32 @@ class SettingsWidget(QWidget):
             # 4. Actions
             btn_box = QWidget()
             btn_layout = QHBoxLayout(btn_box)
-            btn_layout.setContentsMargins(2, 2, 2, 2)
-            btn_layout.setSpacing(4)
+            btn_layout.setContentsMargins(4, 2, 4, 2)
+            btn_layout.setSpacing(6)
 
             # Set Default
             if not r.is_default:
                 def_btn = QPushButton("⭐ Set Default")
                 def_btn.setObjectName("btnAction")
-                def_btn.setFixedHeight(24)
+                def_btn.setFixedHeight(26)
+                def_btn.setStyleSheet("font-size: 11px; padding: 2px 8px;")
                 def_btn.clicked.connect(lambda checked=False, rid=r.id: self._set_default_resume(rid))
                 btn_layout.addWidget(def_btn)
 
             # Preview Text
             view_btn = QPushButton("👁️ View")
             view_btn.setObjectName("btnAction")
-            view_btn.setFixedHeight(24)
+            view_btn.setFixedHeight(26)
+            view_btn.setStyleSheet("font-size: 11px; padding: 2px 8px;")
             view_btn.clicked.connect(lambda checked=False, res=r: self._preview_resume(res))
             btn_layout.addWidget(view_btn)
 
             # Delete
             del_btn = QPushButton("🗑️")
             del_btn.setObjectName("btnAction")
-            del_btn.setFixedHeight(24)
+            del_btn.setFixedHeight(26)
+            del_btn.setFixedWidth(30)
+            del_btn.setStyleSheet("font-size: 11px; padding: 2px 4px;")
             del_btn.clicked.connect(lambda checked=False, rid=r.id: self._delete_resume(rid))
             btn_layout.addWidget(del_btn)
 
@@ -503,10 +510,72 @@ class SettingsWidget(QWidget):
         self.engine_combo.setCurrentText(cfg.search_engine_fallback)
         grid.addWidget(self.engine_combo, 6, 1)
 
+        # Chrome Persistent Profile Path
+        grid.addWidget(QLabel("<b>Chrome Profile Path:</b>"), 7, 0)
+        profile_box = QHBoxLayout()
+        self.profile_path_input = QLineEdit()
+        self.profile_path_input.setText(cfg.chrome_profile_path)
+        profile_box.addWidget(self.profile_path_input, 1)
+
+        browse_prof_btn = QPushButton("📁 Browse")
+        browse_prof_btn.setObjectName("btnAction")
+        browse_prof_btn.clicked.connect(self._browse_profile_dir)
+        profile_box.addWidget(browse_prof_btn)
+
+        reset_prof_btn = QPushButton("↺ Default")
+        reset_prof_btn.setObjectName("btnAction")
+        reset_prof_btn.clicked.connect(lambda: self.profile_path_input.setText(str(CHROME_PROFILE_DIR)))
+        profile_box.addWidget(reset_prof_btn)
+        grid.addLayout(profile_box, 7, 1)
+
         card_layout.addLayout(grid)
         layout.addWidget(card)
+
+        # Authentication / Persistent Login Card
+        auth_card = QFrame()
+        auth_card.setObjectName("cardFrame")
+        ac_layout = QVBoxLayout(auth_card)
+        ac_layout.setContentsMargins(16, 14, 16, 14)
+        ac_layout.setSpacing(10)
+
+        auth_title = QLabel("🔑 LinkedIn & Browser Login Session")
+        auth_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #38BDF8;")
+        ac_layout.addWidget(auth_title)
+
+        auth_desc = QLabel(
+            "The AI uses a dedicated persistent Chrome profile directory so you only need to sign in ONCE.\n"
+            "Click the button below to open Chrome, log in to your LinkedIn account, and close it when done.\n"
+            "Your login session, cookies, and credentials are saved permanently for all background scrapers."
+        )
+        auth_desc.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        auth_desc.setWordWrap(True)
+        ac_layout.addWidget(auth_desc)
+
+        login_btn = QPushButton("🚀  Open Chrome to Log In to LinkedIn")
+        login_btn.setObjectName("btnPrimary")
+        login_btn.setFixedHeight(34)
+        login_btn.clicked.connect(self._open_linkedin_login)
+        ac_layout.addWidget(login_btn)
+
+        layout.addWidget(auth_card)
         layout.addStretch(1)
         return widget
+
+    def _browse_profile_dir(self):
+        dir_path = QFileDialog.getExistingDirectory(self, "Select Chrome Profile Directory", self.profile_path_input.text())
+        if dir_path:
+            self.profile_path_input.setText(dir_path)
+
+    def _open_linkedin_login(self):
+        from browser.browser_manager import launch_login_browser
+        launch_login_browser("https://www.linkedin.com/login")
+        QMessageBox.information(
+            self,
+            "LinkedIn Login Session",
+            "A Chrome browser window has been launched with your persistent profile.\n\n"
+            "Please complete your LinkedIn login in that window. Once you're logged in, you can close the browser.\n"
+            "Your login session and cookies will stay saved for all future searches and enrichments."
+        )
 
     def _save_all_settings(self):
         # Extract selected model ID
@@ -531,6 +600,7 @@ class SettingsWidget(QWidget):
             # Scraper
             browser_type=self.browser_combo.currentText().lower(),
             headless=self.headless_check.isChecked(),
+            chrome_profile_path=self.profile_path_input.text().strip(),
             request_timeout=self.req_timeout_spin.value(),
             page_timeout=self.page_timeout_spin.value(),
             relevance_threshold=self.relevance_spin.value(),

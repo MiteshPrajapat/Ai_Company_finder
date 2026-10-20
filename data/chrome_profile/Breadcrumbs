@@ -1,0 +1,39 @@
+0:40:54 Tab3 StartNav1525 #ntp #auto_toplevel
+0:40:54 Browser3 Insert active Tab3 at 0
+0:40:55 Tab3 FinishNav1525
+0:40:55 Tab3 StartNav1526 #renderer-script #auto_subframe
+0:40:55 Tab3 FinishNav1526
+0:40:55 Tab3 PageLoad
+0:40:55 Tab3 PageLoad #ntp
+0:40:55 Tab3 StartNav1527 #renderer-script #auto_subframe
+0:40:55 Tab3 FinishNav1527
+0:40:55 Tab3 PageLoad
+0:40:59 Tab3 StartNav1528 #renderer-script #auto_subframe
+0:40:59 Tab3 FinishNav1528
+0:41:00 Tab3 PageLoad
+0:42:29 Tab4 StartNav1531 #ntp #auto_toplevel
+0:42:29 Browser4 Insert active Tab4 at 0
+0:42:29 Tab4 FinishNav1531
+0:42:29 Tab4 StartNav1532 #renderer-script #auto_subframe
+0:42:29 Tab4 FinishNav1532
+0:42:29 Tab4 PageLoad
+0:42:29 Tab4 PageLoad #ntp
+0:42:29 Tab4 StartNav1533 #renderer-script #auto_subframe
+0:42:30 Tab4 FinishNav1533
+0:42:30 Tab4 PageLoad
+0:42:34 Tab4 StartNav1534 #renderer-script #auto_subframe
+0:42:34 Tab4 FinishNav1534
+0:42:34 Tab4 PageLoad
+1:03:07 Browser1 Close Tab1 at 0
+1:03:07 Widget Closed: BrowserWidget
+1:03:07 Widget Closed: RoundedOmniboxResultsFrameWindow
+1:03:07 Widget Closed: RoundedOmniboxResultsFrameWindow
+1:03:08 Browser2 Close Tab2 at 0
+1:03:08 Widget Closed: BrowserWidget
+1:03:08 Widget Closed: RoundedOmniboxResultsFrameWindow
+1:03:08 Widget Closed: RoundedOmniboxResultsFrameWindow
+1:03:09 Browser3 Close Tab3 at 0
+1:03:09 Widget Closed: BrowserWidget
+1:03:09 Widget Closed: RoundedOmniboxResultsFrameWindow
+1:03:09 Widget Closed: RoundedOmniboxResultsFrameWindow
+1:03:10 Browser4 Close Tab4 at 0

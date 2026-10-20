@@ -61,6 +61,8 @@ class Database:
                 custom_company_type TEXT,
                 result_limit INTEGER DEFAULT 10,
                 enrich_enabled BOOLEAN DEFAULT 1,
+                enrich_career_portals BOOLEAN DEFAULT 1,
+                enrich_linkedin_website BOOLEAN DEFAULT 1,
                 auto_browser BOOLEAN DEFAULT 1,
                 status TEXT DEFAULT 'PENDING',
                 created_at TEXT
@@ -258,6 +260,20 @@ class Database:
         """Adds missing columns safely if database already exists."""
         cursor = conn.cursor()
         
+        # Check searches table columns
+        cursor.execute("PRAGMA table_info(searches);")
+        existing_search_cols = {row["name"] for row in cursor.fetchall()}
+        if "enrich_career_portals" not in existing_search_cols:
+            try:
+                cursor.execute("ALTER TABLE searches ADD COLUMN enrich_career_portals BOOLEAN DEFAULT 1;")
+            except Exception:
+                pass
+        if "enrich_linkedin_website" not in existing_search_cols:
+            try:
+                cursor.execute("ALTER TABLE searches ADD COLUMN enrich_linkedin_website BOOLEAN DEFAULT 1;")
+            except Exception:
+                pass
+
         # Check jobs table columns
         cursor.execute("PRAGMA table_info(jobs);")
         existing_job_cols = {row["name"] for row in cursor.fetchall()}

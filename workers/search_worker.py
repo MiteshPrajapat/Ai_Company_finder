@@ -24,10 +24,10 @@ class SearchWorkflowWorker(QThread):
     workflow_finished = pyqtSignal(list)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, session: SearchSession, is_resume: bool = False, parent=None):
+    def __init__(self, session: SearchSession, is_resume: bool = False, mode: str = "search", parent=None):
         super().__init__(parent)
         self.session = session
-        self.is_resume = is_resume
+        self.mode = "resume" if is_resume else mode
         self._is_stopped = False
         # If Auto Browser is checked in the UI or headless is configured False, show the browser on screen
         is_headless = not session.auto_browser if session else settings.get_config().headless
@@ -45,11 +45,38 @@ class SearchWorkflowWorker(QThread):
     def run(self):
         """Worker execution entry point."""
         try:
-            if self.is_resume:
+            if self.mode == "resume":
                 results = self.workflow_manager.resume_enrichment(
                     profession=self.session.profession,
                     custom_profession=self.session.custom_profession,
                     search_id=self.session.id,
+                    on_progress_update=lambda cur, tot, msg: self.progress_updated.emit(cur, tot, msg),
+                    on_enrichment_step=lambda comp, step, desc: self.step_updated.emit(comp, step, desc),
+                    on_company_enriched=lambda comp: self.company_updated.emit(comp),
+                    is_stopped=lambda: self._is_stopped
+                )
+            elif self.mode == "linkedin_unstop_enrich":
+                results = self.workflow_manager.run_linkedin_unstop_enrichment(
+                    session=self.session,
+                    on_company_found=lambda comp: self.company_found.emit(comp),
+                    on_progress_update=lambda cur, tot, msg: self.progress_updated.emit(cur, tot, msg),
+                    on_enrichment_step=lambda comp, step, desc: self.step_updated.emit(comp, step, desc),
+                    on_company_enriched=lambda comp: self.company_updated.emit(comp),
+                    is_stopped=lambda: self._is_stopped
+                )
+            elif self.mode == "linkedin_enrich":
+                results = self.workflow_manager.run_linkedin_enrichment(
+                    session=self.session,
+                    on_company_found=lambda comp: self.company_found.emit(comp),
+                    on_progress_update=lambda cur, tot, msg: self.progress_updated.emit(cur, tot, msg),
+                    on_enrichment_step=lambda comp, step, desc: self.step_updated.emit(comp, step, desc),
+                    on_company_enriched=lambda comp: self.company_updated.emit(comp),
+                    is_stopped=lambda: self._is_stopped
+                )
+            elif self.mode == "unstop_enrich":
+                results = self.workflow_manager.run_unstop_enrichment(
+                    session=self.session,
+                    on_company_found=lambda comp: self.company_found.emit(comp),
                     on_progress_update=lambda cur, tot, msg: self.progress_updated.emit(cur, tot, msg),
                     on_enrichment_step=lambda comp, step, desc: self.step_updated.emit(comp, step, desc),
                     on_company_enriched=lambda comp: self.company_updated.emit(comp),

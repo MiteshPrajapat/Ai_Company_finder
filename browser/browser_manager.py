@@ -13,6 +13,8 @@ from selenium.common.exceptions import TimeoutException, WebDriverException
 from config.settings import settings
 from utils.logger import get_logger
 
+from pathlib import Path
+
 logger = get_logger("browser_manager")
 
 
@@ -34,35 +36,46 @@ class BrowserManager:
             return self.driver
 
     def _create_driver(self) -> webdriver.Chrome:
-        """Configures and starts a new Chrome WebDriver."""
+        """Configures and starts a new Chrome WebDriver cleanly and reliably."""
+        import tempfile
         logger.info(f"Initializing Chrome WebDriver (headless={self.headless})...")
-        options = ChromeOptions()
+
+        opts = ChromeOptions()
         if self.headless:
-            options.add_argument("--headless=new")
+            opts.add_argument("--headless=new")
+        opts.add_argument("--no-sandbox")
+        opts.add_argument("--disable-dev-shm-usage")
+        opts.add_argument("--disable-gpu")
+        opts.add_argument("--window-size=1920,1080")
+        opts.add_argument("--disable-notifications")
+        opts.add_argument("--disable-popup-blocking")
+        opts.add_argument("--disable-blink-features=AutomationControlled")
+        opts.add_argument("--remote-debugging-pipe")
+        opts.add_argument(f"--user-agent={settings.get_config().user_agent}")
+        opts.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
+        opts.add_experimental_option("useAutomationExtension", False)
 
-        # Standard stability flags
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument("--disable-notifications")
-        options.add_argument("--disable-popup-blocking")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument(f"--user-agent={settings.get_config().user_agent}")
-
-        # Reduce logging noise from Chrome
-        options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
-        options.add_experimental_option("useAutomationExtension", False)
+        # Isolated clean profile prevents any Windows lock collisions or Chrome instance exit crashes
+        temp_dir = tempfile.mkdtemp(prefix="jobfinder_chrome_")
+        opts.add_argument(f"--user-data-dir={temp_dir}")
 
         try:
-            driver = webdriver.Chrome(options=options)
+            driver = webdriver.Chrome(options=opts)
             driver.set_page_load_timeout(self.timeout)
             driver.set_script_timeout(self.timeout)
             logger.info("Chrome WebDriver initialized successfully.")
             return driver
         except Exception as e:
-            logger.error(f"Failed to launch Chrome WebDriver: {e}", exc_info=True)
-            raise
+            logger.warning(f"Error launching Chrome with custom options ({e}). Retrying with minimum options...")
+            min_opts = ChromeOptions()
+            if self.headless:
+                min_opts.add_argument("--headless=new")
+            min_opts.add_argument("--no-sandbox")
+            min_opts.add_argument("--disable-dev-shm-usage")
+            driver = webdriver.Chrome(options=min_opts)
+            driver.set_page_load_timeout(self.timeout)
+            driver.set_script_timeout(self.timeout)
+            return driver
 
     def navigate(self, url: str, wait_seconds: float = 1.5) -> Optional[str]:
         """
@@ -134,3 +147,33 @@ class BrowserManager:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+
+def launch_login_browser(target_url: str = "https://www.linkedin.com/login", on_closed=None):
+    """
+    Launches a visible Chrome window using the persistent profile in a background thread.
+    Allows user to log in to LinkedIn once; session cookies remain saved for all future scraping.
+    """
+    def _run():
+        bm = BrowserManager(headless=False)
+        try:
+            driver = bm.get_driver()
+            logger.info(f"Opening interactive browser window: {target_url}")
+            driver.get(target_url)
+            while True:
+                time.sleep(1.0)
+                try:
+                    _ = driver.current_url
+                except Exception:
+                    break
+        except Exception as e:
+            logger.error(f"Interactive browser error: {e}")
+        finally:
+            bm.close()
+            if on_closed:
+                on_closed()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return t
+

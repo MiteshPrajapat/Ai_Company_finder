@@ -69,18 +69,23 @@ class HistoryWidget(QWidget):
         self.table.setSortingEnabled(True)
 
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)
 
-        self.table.setColumnWidth(1, 140)
-        self.table.setColumnWidth(3, 160)
-        self.table.setColumnWidth(4, 150)
+        self.table.setColumnWidth(0, 55)
+        self.table.setColumnWidth(1, 150)
+        self.table.setColumnWidth(3, 150)
+        self.table.setColumnWidth(4, 140)
+        self.table.setColumnWidth(5, 130)
+        self.table.setColumnWidth(6, 115)
+        self.table.setColumnWidth(7, 95)
+        self.table.verticalHeader().setDefaultSectionSize(36)
 
         splitter.addWidget(self.table)
 
@@ -165,8 +170,10 @@ class HistoryWidget(QWidget):
             btn_layout.setContentsMargins(4, 2, 4, 2)
             btn_layout.setSpacing(6)
 
-            load_btn = QPushButton("View")
+            load_btn = QPushButton("👁️ View")
             load_btn.setObjectName("btnAction")
+            load_btn.setFixedHeight(26)
+            load_btn.setStyleSheet("font-size: 11px; padding: 2px 10px;")
             load_btn.clicked.connect(lambda checked=False, sid=search_id: self.load_search_requested.emit(sid))
             btn_layout.addWidget(load_btn)
 

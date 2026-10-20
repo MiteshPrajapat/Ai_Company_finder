@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "job-finder-ai": {
+      "command": "python",
+      "args": [
+        "d:\\AI_job_finder\\mcp_server.py"
+      ],
+      "env": {
+        "PYTHONPATH": "d:\\AI_job_finder"
+      }
+    }
+  }
+}

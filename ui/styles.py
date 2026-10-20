@@ -410,19 +410,19 @@ def get_status_badge_style(status: str) -> str:
     }
 
     bg, fg, border = colors.get(status_upper, ("#1E293B", "#CBD5E1", "#334155"))
-    return f"background-color: {bg}; color: {fg}; border: 1px solid {border}; font-weight: 600; font-size: 11px; padding: 2px 8px; border-radius: 4px; text-align: center;"
+    return f"background-color: {bg}; color: {fg}; border: 1px solid {border}; font-weight: 600; font-size: 11px; padding: 3px 8px; border-radius: 4px;"
 
 
 def get_relevance_badge_style(score: int) -> str:
     """Returns color styling based on relevance score 0-100."""
     if score >= 80:
-        return "background-color: #064E3B; color: #34D399; border: 1px solid #059669; font-weight: 700; font-size: 11px; padding: 2px 8px; border-radius: 4px;"
+        return "background-color: #064E3B; color: #34D399; border: 1px solid #059669; font-weight: 700; font-size: 11px; padding: 3px 8px; border-radius: 4px;"
     elif score >= 60:
-        return "background-color: #0C4A6E; color: #38BDF8; border: 1px solid #0284C7; font-weight: 700; font-size: 11px; padding: 2px 8px; border-radius: 4px;"
+        return "background-color: #0C4A6E; color: #38BDF8; border: 1px solid #0284C7; font-weight: 700; font-size: 11px; padding: 3px 8px; border-radius: 4px;"
     elif score >= 40:
-        return "background-color: #78350F; color: #FDE68A; border: 1px solid #D97706; font-weight: 700; font-size: 11px; padding: 2px 8px; border-radius: 4px;"
+        return "background-color: #78350F; color: #FDE68A; border: 1px solid #D97706; font-weight: 700; font-size: 11px; padding: 3px 8px; border-radius: 4px;"
     else:
-        return "background-color: #7F1D1D; color: #FCA5A5; border: 1px solid #DC2626; font-weight: 700; font-size: 11px; padding: 2px 8px; border-radius: 4px;"
+        return "background-color: #7F1D1D; color: #FCA5A5; border: 1px solid #DC2626; font-weight: 700; font-size: 11px; padding: 3px 8px; border-radius: 4px;"
 
 
 def get_source_badge_style(source: str) -> str:

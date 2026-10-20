@@ -9,13 +9,13 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, QLineEdit,
     QPushButton, QFrame, QGridLayout, QComboBox, QProgressBar,
-    QMessageBox, QApplication, QScrollArea, QWidget, QSplitter
+    QMessageBox, QApplication, QScrollArea, QWidget, QSplitter, QCheckBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QClipboard
 
 from database.models import Job, Company, Resume, JobApplication, AIAnalysisResult
-from database.repositories import ResumesRepository, ApplicationsRepository, ContactsRepository
+from database.repositories import ResumesRepository, ApplicationsRepository, ContactsRepository, CompaniesRepository
 from core.ai.openrouter_client import OpenRouterClient
 from core.ai.prompt_builders import PromptBuilder
 from browser.email_automation import EmailAutomationService
@@ -24,6 +24,98 @@ from ui.styles import get_relevance_badge_style
 from utils.logger import get_logger
 
 logger = get_logger("contact_hr_dialog")
+
+
+class LiveChromeSenderWorker(QThread):
+    """Background worker for live Chrome automation: typing recipient, subject, body, attaching resume, and sending."""
+    status_updated = pyqtSignal(str)
+    finished = pyqtSignal(dict)
+
+    def __init__(
+        self,
+        to_email: str,
+        subject: str,
+        body: str,
+        resume_path: Optional[str] = None,
+        auto_send: bool = True
+    ):
+        super().__init__()
+        self.to_email = to_email
+        self.subject = subject
+        self.body = body
+        self.resume_path = resume_path
+        self.auto_send = auto_send
+
+    def run(self):
+        res = EmailAutomationService.live_chrome_auto_type_and_send(
+            to_email=self.to_email,
+            subject=self.subject,
+            body=self.body,
+            resume_path=self.resume_path,
+            auto_send=self.auto_send,
+            status_callback=self.status_updated.emit
+        )
+        self.finished.emit(res)
+
+
+class HREmailHunterWorker(QThread):
+    """Background worker for LinkedIn Company About & OSINT HR Email discovery."""
+    finished = pyqtSignal(dict)
+
+    def __init__(
+        self,
+        company_name: str,
+        domain: Optional[str] = None,
+        location: Optional[str] = None,
+        linkedin_url: Optional[str] = None
+    ):
+        super().__init__()
+        self.company_name = company_name
+        self.domain = domain
+        self.location = location
+        self.linkedin_url = linkedin_url
+
+    def run(self):
+        try:
+            from scrapers.linkedin_company_enricher import linkedin_enricher
+            from core.hr_email_hunter import hr_hunter
+
+            # Step 1: LinkedIn Company About / Fallback search & Website scraping
+            li_enrich = linkedin_enricher.full_enrichment_flow(
+                company_name=self.company_name,
+                company_linkedin_url=self.linkedin_url,
+                location=self.location
+            )
+
+            discovered_domain = self.domain or (li_enrich.get("website") if li_enrich.get("website") else None)
+
+            # Step 2: Recruiter Dorks & MX Verification
+            res = hr_hunter.hunt_hr_contacts(self.company_name, discovered_domain)
+
+            # Merge any emails scraped directly from company website
+            existing_emails = {c["email"] for c in res.get("email_candidates", [])}
+            for w_em in li_enrich.get("emails", []):
+                em_str = w_em["email"]
+                if em_str not in existing_emails:
+                    res["email_candidates"].insert(0, {
+                        "email": em_str,
+                        "confidence": 92,
+                        "source": f"Official Website ({li_enrich.get('website')})"
+                    })
+                    existing_emails.add(em_str)
+
+            # If no primary email, take top website email
+            if not res.get("primary_email") and li_enrich.get("emails"):
+                res["primary_email"] = li_enrich["emails"][0]["email"]
+
+            res["website"] = li_enrich.get("website")
+            res["phone"] = li_enrich.get("phone")
+            res["industry"] = li_enrich.get("industry")
+            res["headquarters"] = li_enrich.get("headquarters")
+
+            self.finished.emit(res)
+        except Exception as e:
+            self.finished.emit({"success": False, "error": str(e)})
 
 
 class AIAnalysisWorker(QThread):
@@ -135,6 +227,7 @@ class ContactHRDialog(QDialog):
         self.resumes_repo = ResumesRepository()
         self.apps_repo = ApplicationsRepository()
         self.contacts_repo = ContactsRepository()
+        self.companies_repo = CompaniesRepository()
 
         self.current_resume: Optional[Resume] = None
         self.analysis_result: Optional[AIAnalysisResult] = None
@@ -176,11 +269,19 @@ class ContactHRDialog(QDialog):
         grid = QGridLayout()
         grid.setSpacing(8)
 
-        # HR Email
+        # HR Email with OSINT Hunt Button
         grid.addWidget(QLabel("<b>✉️ Recipient HR Email:</b>"), 0, 0)
+        email_h_layout = QHBoxLayout()
         self.hr_email_input = QLineEdit()
         self.hr_email_input.setPlaceholderText("e.g. hr@company.com or recruiter@company.com")
-        grid.addWidget(self.hr_email_input, 0, 1)
+        email_h_layout.addWidget(self.hr_email_input, 1)
+
+        self.hunt_hr_btn = QPushButton("🎯 Hunt HR")
+        self.hunt_hr_btn.setObjectName("btnAction")
+        self.hunt_hr_btn.setToolTip("Hunt HR & Recruiter emails via Google & LinkedIn OSINT Dorks")
+        self.hunt_hr_btn.clicked.connect(lambda: self._hunt_hr_email(auto=False))
+        email_h_layout.addWidget(self.hunt_hr_btn)
+        grid.addLayout(email_h_layout, 0, 1)
 
         # Resume Selector
         grid.addWidget(QLabel("<b>📄 Selected Resume:</b>"), 0, 2)
@@ -207,6 +308,13 @@ class ContactHRDialog(QDialog):
         grid.addWidget(self.custom_prompt_input, 1, 3)
 
         tc_layout.addLayout(grid)
+
+        # OSINT Hunter Status Badge
+        self.hunt_status_lbl = QLabel("")
+        self.hunt_status_lbl.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 600; padding: 2px 4px;")
+        self.hunt_status_lbl.setVisible(False)
+        tc_layout.addWidget(self.hunt_status_lbl)
+
         root_layout.addWidget(top_card)
 
         # 2. Match Score & Skills Breakdown Section
@@ -267,9 +375,15 @@ class ContactHRDialog(QDialog):
 
         root_layout.addWidget(editor_card, 1)
 
+        # Live Automation Status Bar
+        self.live_status_lbl = QLabel("Ready to dispatch")
+        self.live_status_lbl.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 600; padding: 4px 10px; background-color: #0B0F19; border: 1px solid #0284C7; border-radius: 4px;")
+        self.live_status_lbl.setVisible(False)
+        root_layout.addWidget(self.live_status_lbl)
+
         # 4. Bottom Action Bar
         action_bar = QHBoxLayout()
-        action_bar.setSpacing(10)
+        action_bar.setSpacing(8)
 
         # Regenerate AI Button
         self.regen_btn = QPushButton("✨ Regenerate with AI")
@@ -285,10 +399,16 @@ class ContactHRDialog(QDialog):
 
         action_bar.addStretch(1)
 
+        # Auto-send checkbox
+        self.auto_send_check = QCheckBox("⚡ Live Auto-Type, Attach & Send")
+        self.auto_send_check.setChecked(True)
+        self.auto_send_check.setToolTip("Opens visible Chrome, types email character-by-character in front of you, attaches resume, and sends automatically.")
+        action_bar.addWidget(self.auto_send_check)
+
         # Webmail Provider Selector
         action_bar.addWidget(QLabel("Send via:"))
         self.provider_combo = QComboBox()
-        self.provider_combo.addItems(["Gmail (Web)", "Outlook (Web)", "Default Email App"])
+        self.provider_combo.addItems(["Gmail (Live Chrome)", "Outlook (Web)", "Default Email App"])
         action_bar.addWidget(self.provider_combo)
 
         # Save Draft Button
@@ -298,7 +418,7 @@ class ContactHRDialog(QDialog):
         action_bar.addWidget(self.save_draft_btn)
 
         # Primary Dispatch Button: Open in Chrome & Send
-        self.send_btn = QPushButton("🚀 Open in Chrome & Send")
+        self.send_btn = QPushButton("🚀 Live Send with Chrome")
         self.send_btn.setObjectName("btnPrimary")
         self.send_btn.setFixedHeight(34)
         self.send_btn.clicked.connect(self._open_in_chrome_and_send)
@@ -330,6 +450,9 @@ class ContactHRDialog(QDialog):
             detected_email = self._find_best_contact_email()
             if detected_email:
                 self.hr_email_input.setText(detected_email)
+            else:
+                # Automatically hunt HR via OSINT dorks in background!
+                self._hunt_hr_email(auto=True)
 
         # 3. Check for existing application draft
         if self.job.id:
@@ -366,6 +489,108 @@ class ContactHRDialog(QDialog):
 
         # If none matched priority, return first available
         return contacts[0].email if contacts else ""
+
+    def _hunt_hr_email(self, auto: bool = False):
+        """Discovers HR & Recruiter emails via OSINT / LinkedIn search dorks."""
+        company_name = self.job.company_name or ""
+        if not company_name:
+            if not auto:
+                QMessageBox.warning(self, "Company Name Required", "Please ensure the job has a company name to hunt HR.")
+            return
+
+        domain = None
+        linkedin_url = None
+        if self.job and self.job.company_id:
+            try:
+                comp = self.companies_repo.get_by_id(self.job.company_id)
+                if comp:
+                    if comp.website_url:
+                        domain = comp.website_domain or comp.website_url
+                    linkedin_url = comp.linkedin_url
+            except Exception as e:
+                logger.debug(f"Failed to fetch company for domain: {e}")
+
+        self.hunt_hr_btn.setEnabled(False)
+        self.hunt_hr_btn.setText("🎯 Hunting...")
+        self.hunt_status_lbl.setVisible(True)
+        self.hunt_status_lbl.setStyleSheet("color: #38BDF8; font-size: 11px;")
+        self.hunt_status_lbl.setText(f"🔍 Checking LinkedIn About, Website & OSINT dorks for {company_name}...")
+
+        self.hunter_worker = HREmailHunterWorker(
+            company_name=company_name,
+            domain=domain,
+            location=self.job.location,
+            linkedin_url=linkedin_url
+        )
+        self.hunter_worker.finished.connect(self._on_hunter_finished)
+        self.hunter_worker.start()
+
+    def _on_hunter_finished(self, res: dict):
+        self.hunt_hr_btn.setEnabled(True)
+        self.hunt_hr_btn.setText("🎯 Hunt HR")
+        primary = res.get("primary_email", "")
+        recruiters = res.get("recruiters", [])
+        candidates = res.get("email_candidates", [])
+        website = res.get("website")
+        phone = res.get("phone")
+        industry = res.get("industry")
+
+        # Persist company website, phone, industry if newly found
+        if self.job.company_id:
+            try:
+                comp = self.companies_repo.get_by_id(self.job.company_id)
+                if comp:
+                    updated = False
+                    if website and not comp.website_url:
+                        comp.website_url = website
+                        comp.website = website
+                        updated = True
+                    if phone and not comp.phone:
+                        comp.phone = phone
+                        updated = True
+                    if industry and not comp.category:
+                        comp.category = industry
+                        updated = True
+                    if updated:
+                        self.companies_repo.upsert(comp)
+            except Exception as ce:
+                logger.debug(f"Could not update company details: {ce}")
+
+        if primary:
+            if not self.hr_email_input.text().strip():
+                self.hr_email_input.setText(primary)
+
+            info_tags = []
+            if website:
+                clean_w = website.replace("https://", "").replace("http://", "").rstrip("/")
+                info_tags.append(f"🌐 {clean_w}")
+            if phone:
+                info_tags.append(f"📞 {phone}")
+            if recruiters:
+                info_tags.append(f"👤 {recruiters[0]['name']}")
+            info_str = f" | {', '.join(info_tags)}" if info_tags else ""
+
+            self.hunt_status_lbl.setText(
+                f"✅ Found: {primary}{info_str} ({len(candidates)} emails available)"
+            )
+            self.hunt_status_lbl.setStyleSheet("color: #34D399; font-size: 11px; font-weight: 600;")
+
+            # Persist to company contacts repository
+            if self.job.company_id:
+                try:
+                    self.contacts_repo.upsert(Contact(
+                        company_id=self.job.company_id,
+                        email=primary,
+                        email_type="hr",
+                        name=recruiters[0]["name"] if recruiters else None,
+                        role=recruiters[0]["title"] if recruiters else "HR / Recruiter",
+                        source_url=website or "OSINT Search Dork"
+                    ))
+                except Exception as e:
+                    logger.debug(f"Failed to save hunter contact: {e}")
+        else:
+            self.hunt_status_lbl.setText("⚠️ No direct HR email discovered via OSINT. Please enter manually.")
+            self.hunt_status_lbl.setStyleSheet("color: #FBBF24; font-size: 11px;")
 
     def _on_resume_changed(self, index: int):
         resume_data = self.resume_combo.currentData()
@@ -530,9 +755,8 @@ class ContactHRDialog(QDialog):
         """
         Executes the Chrome webmail dispatch workflow:
         1. Validates HR recipient, subject, and body.
-        2. Copies resume attachment path to clipboard if available.
-        3. Opens Chrome with prefilled Gmail/Outlook compose window.
-        4. Updates application status to 'BROWSER_OPENED' with timestamped activity log.
+        2. If Live Auto-Type is checked: launches visible Chrome, types live in front of user, attaches resume, and sends!
+        3. Updates application status in database with timestamped activity log.
         """
         hr_email = self.hr_email_input.text().strip()
         subject = self.subject_input.text().strip()
@@ -555,13 +779,10 @@ class ContactHRDialog(QDialog):
         elif "Default" in provider_choice:
             provider = "mailto"
 
-        # Copy resume path to clipboard for quick paste in Chrome file picker
-        resume_notice = ""
+        resume_path = None
         if self.current_resume and self.current_resume.file_path:
-            rpath = os.path.abspath(self.current_resume.file_path)
-            resume_notice = f"\n\n📎 Resume Path (ready to attach):\n{rpath}"
+            resume_path = os.path.abspath(self.current_resume.file_path)
 
-        # Save / Update Application Status
         score = self.analysis_result.match_score if self.analysis_result else self.job.relevance_score
         resume_id = self.current_resume.id if self.current_resume else None
 
@@ -577,15 +798,33 @@ class ContactHRDialog(QDialog):
             activity_log=(
                 f"{datetime.now().strftime('%H:%M')}  Job analyzed & match score {score}%\n"
                 f"{datetime.now().strftime('%H:%M')}  Personalized email generated\n"
-                f"{datetime.now().strftime('%H:%M')}  Chrome browser opened with prefilled email"
+                f"{datetime.now().strftime('%H:%M')}  Chrome automation initiated"
             )
         )
-        app_id = self.apps_repo.save_application(app)
+        self.active_app_id = self.apps_repo.save_application(app)
 
-        # Dispatch to Browser
-        if provider == "mailto":
+        if provider == "gmail":
+            auto_send = self.auto_send_check.isChecked()
+            # Launch Live Chrome Worker with Real-Time Typing & Auto Attach & Send
+            self.live_status_lbl.setVisible(True)
+            self.live_status_lbl.setText("🚀 Launching Chrome in front of you...")
+            self.send_btn.setEnabled(False)
+            self.send_btn.setText("⏳ Automating in Chrome...")
+
+            self.chrome_worker = LiveChromeSenderWorker(
+                to_email=hr_email,
+                subject=subject,
+                body=body,
+                resume_path=resume_path,
+                auto_send=auto_send
+            )
+            self.chrome_worker.status_updated.connect(self._on_chrome_status_updated)
+            self.chrome_worker.finished.connect(self._on_chrome_worker_finished)
+            self.chrome_worker.start()
+        elif provider == "mailto":
             mailto_url = EmailAutomationService.create_mailto_url(hr_email, subject, body)
             webbrowser.open(mailto_url)
+            self._finalize_dispatch(is_live=False)
         else:
             EmailAutomationService.open_in_chrome_webmail(
                 to_email=hr_email,
@@ -594,6 +833,47 @@ class ContactHRDialog(QDialog):
                 provider=provider,
                 use_selenium=False
             )
+            self._finalize_dispatch(is_live=False)
+
+    def _on_chrome_status_updated(self, msg: str):
+        self.live_status_lbl.setText(f"⚡ {msg}")
+
+    def _on_chrome_worker_finished(self, result: dict):
+        self.send_btn.setEnabled(True)
+        self.send_btn.setText("🚀 Live Send with Chrome")
+        if result.get("success"):
+            self.live_status_lbl.setText("✅ Email typed, resume attached, and sent successfully!")
+            if hasattr(self, "active_app_id") and self.active_app_id:
+                self.apps_repo.update_status(
+                    self.active_app_id,
+                    "SENT",
+                    "Automated live Chrome dispatch: typed email, attached resume, and clicked Send"
+                )
+            QMessageBox.information(
+                self,
+                "Application Sent Successfully",
+                "Chrome live automation complete!\n\n"
+                "• Recipient typed live\n"
+                "• Personalized email typed live\n"
+                "• Resume attached\n"
+                "• Send button clicked automatically\n\n"
+                "Your application status has been marked as SENT."
+            )
+            self.accept()
+        else:
+            err = result.get("error", "Unknown error")
+            self.live_status_lbl.setText(f"⚠️ {err}")
+            QMessageBox.warning(
+                self,
+                "Automation Notice",
+                f"Chrome was opened. If Google login was required, please complete the sign-in in the opened Chrome window:\n{err}"
+            )
+
+    def _finalize_dispatch(self, is_live: bool = False):
+        resume_notice = ""
+        if self.current_resume and self.current_resume.file_path:
+            rpath = os.path.abspath(self.current_resume.file_path)
+            resume_notice = f"\n\n📎 Resume Path (ready to attach):\n{rpath}"
 
         QMessageBox.information(
             self,

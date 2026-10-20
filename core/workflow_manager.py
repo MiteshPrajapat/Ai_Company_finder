@@ -108,7 +108,9 @@ class WorkflowManager:
                     company=comp,
                     job_matcher=job_matcher,
                     step_callback=on_enrichment_step,
-                    is_stopped=is_stopped
+                    is_stopped=is_stopped,
+                    enrich_career_portals=getattr(session, "enrich_career_portals", True),
+                    enrich_linkedin_website=getattr(session, "enrich_linkedin_website", True)
                 )
                 if on_company_enriched:
                     on_company_enriched(enriched_comp)
@@ -212,6 +214,38 @@ class WorkflowManager:
 
                 comp = self.companies_repo.get_by_id(job.company_id)
                 if comp:
+                    # Auto-enrich LinkedIn companies: extract website, phone, and scrape emails
+                    if not comp.website_url and norm_job.source == "linkedin":
+                        try:
+                            from scrapers.linkedin_company_enricher import linkedin_enricher
+                            from database.models import Contact
+                            raw = norm_job.raw_data or {}
+                            li_url = raw.get("company_linkedin_url")
+                            res = linkedin_enricher.full_enrichment_flow(
+                                company_name=comp.name,
+                                company_linkedin_url=li_url,
+                                location=norm_job.location
+                            )
+                            if res.get("website"):
+                                comp.website_url = res["website"]
+                                comp.website = res["website"]
+                            if res.get("phone"):
+                                comp.phone = res["phone"]
+                            if res.get("industry") and not comp.category:
+                                comp.category = res["industry"]
+                            self.companies_repo.upsert(comp)
+
+                            # Save any scraped emails
+                            for em_item in res.get("emails", []):
+                                self.contacts_repo.upsert(Contact(
+                                    company_id=comp.id,
+                                    email=em_item["email"],
+                                    email_type=em_item.get("type", "General"),
+                                    source_url=em_item.get("source")
+                                ))
+                        except Exception as enrich_err:
+                            logger.debug(f"LinkedIn auto-enrichment error for {comp.name}: {enrich_err}")
+
                     if on_company_found:
                         on_company_found(comp)
                     if on_company_enriched:
@@ -269,3 +303,89 @@ class WorkflowManager:
                 on_company_enriched(enriched)
 
         return resumed_list
+
+    def run_linkedin_enrichment(
+        self,
+        session: SearchSession,
+        on_company_found: Optional[Callable[[Company], None]] = None,
+        on_progress_update: Optional[Callable[[int, int, str], None]] = None,
+        on_enrichment_step: Optional[Callable[[Company, str, str], None]] = None,
+        on_company_enriched: Optional[Callable[[Company], None]] = None,
+        is_stopped: Optional[Callable[[], bool]] = None
+    ) -> List[Company]:
+        """
+        Executes live browser-driven LinkedIn Job hunting and sequential per-company enrichment:
+        1. Opens LinkedIn Jobs search with exact role & location filters.
+        2. Captures exactly up to session.result_limit matching jobs.
+        3. Sequentially enriches company LinkedIn page -> website -> emails -> career portal.
+        """
+        from scrapers.linkedin_jobs_hunter import LinkedInJobsHunter
+        hunter = LinkedInJobsHunter(
+            browser_manager=self.browser_manager,
+            companies_repo=self.companies_repo,
+            jobs_repo=self.jobs_repo
+        )
+        return hunter.hunt_and_enrich(
+            session=session,
+            on_company_found=on_company_found,
+            on_progress_update=on_progress_update,
+            on_enrichment_step=on_enrichment_step,
+            on_company_enriched=on_company_enriched,
+            is_stopped=is_stopped
+        )
+
+    def run_unstop_enrichment(
+        self,
+        session: SearchSession,
+        on_company_found: Optional[Callable[[Company], None]] = None,
+        on_progress_update: Optional[Callable[[int, int, str], None]] = None,
+        on_enrichment_step: Optional[Callable[[Company, str, str], None]] = None,
+        on_company_enriched: Optional[Callable[[Company], None]] = None,
+        is_stopped: Optional[Callable[[], bool]] = None
+    ) -> List[Company]:
+        """Queries Unstop for internships, hiring challenges, and tech opportunities."""
+        loc_str = f"{session.city}, {session.state}, {session.country}".strip(", ")
+        target_prof = session.profession if session.profession != "Other" else (session.custom_profession or "Software")
+        job_matcher = JobMatcher(profession=target_prof, threshold=settings.get_config().relevance_threshold)
+
+        if on_progress_update:
+            on_progress_update(1, 2, f"Querying Unstop Opportunities for '{target_prof}' in {session.city or loc_str}...")
+
+        try:
+            unstop_jobs = self.unstop_adapter.search_jobs(
+                profession=target_prof,
+                location=session.city or loc_str,
+                limit=max(5, session.result_limit)
+            )
+            if on_progress_update:
+                on_progress_update(2, 2, f"Ingesting {len(unstop_jobs)} opportunities from Unstop...")
+            self._ingest_multi_source_jobs(unstop_jobs, session.id, job_matcher, on_company_found, on_company_enriched)
+        except Exception as e:
+            logger.warning(f"Unstop enrichment error: {e}")
+
+        return self.companies_repo.get_companies(search_id=session.id)
+
+    def run_linkedin_unstop_enrichment(
+        self,
+        session: SearchSession,
+        on_company_found: Optional[Callable[[Company], None]] = None,
+        on_progress_update: Optional[Callable[[int, int, str], None]] = None,
+        on_enrichment_step: Optional[Callable[[Company, str, str], None]] = None,
+        on_company_enriched: Optional[Callable[[Company], None]] = None,
+        is_stopped: Optional[Callable[[], bool]] = None
+    ) -> List[Company]:
+        """
+        Runs live browser-driven LinkedIn Job search & sequential enrichment:
+        Directly opens LinkedIn in Chrome, searches for the exact job role & location,
+        and enriches each captured company step-by-step.
+        """
+        return self.run_linkedin_enrichment(
+            session=session,
+            on_company_found=on_company_found,
+            on_progress_update=on_progress_update,
+            on_enrichment_step=on_enrichment_step,
+            on_company_enriched=on_company_enriched,
+            is_stopped=is_stopped
+        )
+
+

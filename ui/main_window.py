@@ -27,6 +27,7 @@ from ui.applications_widget import ApplicationsWidget
 from ui.history_widget import HistoryWidget
 from ui.export_dialog import ExportDialog
 from ui.settings_widget import SettingsWidget
+from ui.enrichment_widget import EnrichmentWidget
 from ui.styles import DARK_THEME_QSS, get_relevance_badge_style, get_status_badge_style
 from utils.text_utils import clean_location_display, format_employment_type, is_valid_contact_email
 from utils.logger import get_logger
@@ -132,17 +133,22 @@ class MainWindow(QMainWindow):
         self.page_all_contacts = self._create_all_contacts_page()
         self.pages.addWidget(self.page_all_contacts)
 
-        # Page 4: Applications Tracker
+        # Page 4: LinkedIn & Web Contacts / Career Portals Dedicated Enricher
+        self.page_enrichment = EnrichmentWidget()
+        self.page_enrichment.contact_hr_requested.connect(self._on_enrichment_contact_hr)
+        self.pages.addWidget(self.page_enrichment)
+
+        # Page 5: Applications Tracker
         self.page_applications = ApplicationsWidget()
         self.pages.addWidget(self.page_applications)
 
-        # Page 5: History
+        # Page 6: History
         self.page_history = HistoryWidget()
         self.page_history.load_search_requested.connect(self._load_search_from_history)
         self.page_history.resume_search_requested.connect(self._resume_search_from_history)
         self.pages.addWidget(self.page_history)
 
-        # Page 6: Settings
+        # Page 7: Settings
         self.page_settings = SettingsWidget()
         self.pages.addWidget(self.page_settings)
 
@@ -162,14 +168,38 @@ class MainWindow(QMainWindow):
             ("🏢  All Companies", 1),
             ("💼  Job Openings", 2),
             ("✉️  Business Contacts", 3),
-            ("📋  Applications Tracker", 4),
-            ("📜  Search History", 5),
-            ("⚙️  Settings", 6)
+            ("🌐  LinkedIn & Web Enrich", 4),
+            ("📋  Applications Tracker", 5),
+            ("📜  Search History", 6),
+            ("⚙️  Settings", 7)
         ]
         for label, idx in items:
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, idx)
             self.sidebar.addItem(item)
+
+    def _on_nav_changed(self, row: int):
+        if 0 <= row < self.pages.count():
+            self.pages.setCurrentIndex(row)
+            if row == 1:
+                self._refresh_all_companies_page()
+            elif row == 2:
+                self._load_all_jobs_data()
+            elif row == 3:
+                self._load_all_contacts_data()
+            elif row == 5:
+                self.page_applications.reload_applications()
+            elif row == 6:
+                self.page_history.reload_history()
+
+    def _on_enrichment_contact_hr(self, data: dict):
+        comp = data.get("company")
+        target_email = data.get("email")
+        dialog = ContactHRDialog(company=comp, parent=self)
+        if target_email and hasattr(dialog, "hr_email_input"):
+            dialog.hr_email_input.setText(target_email)
+        dialog.exec()
+        self.page_applications.reload_applications()
 
     # -------------------------------------------------------------
     # Page 1: Search & Discover
@@ -185,6 +215,7 @@ class MainWindow(QMainWindow):
         self.search_widget.search_requested.connect(self._start_search)
         self.search_widget.stop_requested.connect(self._stop_search)
         self.search_widget.resume_requested.connect(self._resume_enrichment)
+        self.search_widget.enrich_requested.connect(self._start_enrichment)
         layout.addWidget(self.search_widget, 0)
 
         # Progress (Compact, stretch=0)
@@ -311,14 +342,17 @@ class MainWindow(QMainWindow):
         j_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
         j_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
         j_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
-        j_header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        j_header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        j_header.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
+        j_header.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)
 
         self.jobs_table.setColumnWidth(1, 180)
-        self.jobs_table.setColumnWidth(2, 170)
-        self.jobs_table.setColumnWidth(3, 140)
-        self.jobs_table.setColumnWidth(4, 90)
-        self.jobs_table.setColumnWidth(5, 90)
+        self.jobs_table.setColumnWidth(2, 140)
+        self.jobs_table.setColumnWidth(3, 130)
+        self.jobs_table.setColumnWidth(4, 95)
+        self.jobs_table.setColumnWidth(5, 95)
+        self.jobs_table.setColumnWidth(6, 85)
+        self.jobs_table.setColumnWidth(7, 185)
+        self.jobs_table.verticalHeader().setDefaultSectionSize(36)
 
         layout.addWidget(self.jobs_table, 1)
         return widget
@@ -384,14 +418,16 @@ class MainWindow(QMainWindow):
 
         c_header = self.contacts_table.horizontalHeader()
         c_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        c_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        c_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         c_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         c_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
         c_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
 
-        self.contacts_table.setColumnWidth(0, 270)
+        self.contacts_table.setColumnWidth(0, 260)
+        self.contacts_table.setColumnWidth(1, 110)
         self.contacts_table.setColumnWidth(3, 160)
         self.contacts_table.setColumnWidth(4, 180)
+        self.contacts_table.verticalHeader().setDefaultSectionSize(36)
 
         layout.addWidget(self.contacts_table, 1)
         return widget
@@ -516,20 +552,20 @@ class MainWindow(QMainWindow):
             # 7. Action Buttons Container
             btn_box = QWidget()
             btn_layout = QHBoxLayout(btn_box)
-            btn_layout.setContentsMargins(2, 2, 2, 2)
-            btn_layout.setSpacing(4)
+            btn_layout.setContentsMargins(4, 2, 4, 2)
+            btn_layout.setSpacing(6)
 
             btn_contact = QPushButton("✉️ Contact HR")
             btn_contact.setObjectName("btnPrimary")
-            btn_contact.setStyleSheet("background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284C7, stop:1 #06B6D4); font-size: 10px; font-weight: 700; padding: 2px 6px;")
-            btn_contact.setFixedHeight(24)
+            btn_contact.setStyleSheet("background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284C7, stop:1 #06B6D4); font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px;")
+            btn_contact.setFixedHeight(26)
             btn_contact.clicked.connect(lambda checked=False, j=job: self._open_contact_hr_modal(j))
             btn_layout.addWidget(btn_contact)
 
             btn_view = QPushButton("👁️ View")
             btn_view.setObjectName("btnAction")
-            btn_view.setStyleSheet("font-size: 10px; padding: 2px 6px;")
-            btn_view.setFixedHeight(24)
+            btn_view.setStyleSheet("font-size: 11px; padding: 3px 8px; border-radius: 4px;")
+            btn_view.setFixedHeight(26)
             btn_view.clicked.connect(lambda checked=False, j=job: self._open_job_modal(j))
             btn_layout.addWidget(btn_view)
 
@@ -636,6 +672,41 @@ class MainWindow(QMainWindow):
         self.progress_widget.reset_progress()
 
         self.current_worker = SearchWorkflowWorker(session=session, is_resume=True)
+        self._wire_worker(self.current_worker)
+        self.current_worker.start()
+
+    def _start_enrichment(self, session: SearchSession):
+        logger.info(f"Main window starting unified LinkedIn & Unstop enrichment session: {session.city}, {session.profession}")
+        if self.active_search_session and self.active_search_session.id:
+            session.id = self.active_search_session.id
+        self.active_search_session = session
+        self.session_badge.setText("●  ENRICHING")
+        self.session_badge.setStyleSheet("background-color: #312E81; color: #C7D2FE; font-weight: 700; font-size: 11px; padding: 5px 14px; border-radius: 6px; border: 1px solid #6366F1;")
+        self.progress_widget.reset_progress()
+
+        self.current_worker = SearchWorkflowWorker(session=session, mode="linkedin_unstop_enrich")
+        self._wire_worker(self.current_worker)
+        self.current_worker.start()
+
+    def _start_linkedin_enrich(self, session: SearchSession):
+        logger.info(f"Main window starting LinkedIn enrichment session: {session.city}, {session.profession}")
+        self.active_search_session = session
+        self.session_badge.setText("●  LINKEDIN ENRICH")
+        self.session_badge.setStyleSheet("background-color: #075985; color: #38BDF8; font-weight: 700; font-size: 11px; padding: 5px 14px; border-radius: 6px; border: 1px solid #0284C7;")
+        self.progress_widget.reset_progress()
+
+        self.current_worker = SearchWorkflowWorker(session=session, mode="linkedin_enrich")
+        self._wire_worker(self.current_worker)
+        self.current_worker.start()
+
+    def _start_unstop_enrich(self, session: SearchSession):
+        logger.info(f"Main window starting Unstop enrichment session: {session.city}, {session.profession}")
+        self.active_search_session = session
+        self.session_badge.setText("●  UNSTOP ENRICH")
+        self.session_badge.setStyleSheet("background-color: #4C1D95; color: #DDD6FE; font-weight: 700; font-size: 11px; padding: 5px 14px; border-radius: 6px; border: 1px solid #7C3AED;")
+        self.progress_widget.reset_progress()
+
+        self.current_worker = SearchWorkflowWorker(session=session, mode="unstop_enrich")
         self._wire_worker(self.current_worker)
         self.current_worker.start()
 
